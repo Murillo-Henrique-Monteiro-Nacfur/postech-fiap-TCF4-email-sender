@@ -1,16 +1,17 @@
 package com.postech.fiap;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.postech.fiap.service.GoogleStorageService;
 import io.quarkus.funqy.Funq;
 import jakarta.enterprise.context.ApplicationScoped;
 import io.quarkus.mailer.Mail;
 import io.quarkus.mailer.Mailer;
 import jakarta.inject.Inject;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.Base64;
 import java.util.List;
 
@@ -26,6 +27,9 @@ public class EmailSenderFunction {
 
     @Inject
     Mailer mailer;
+
+    @Inject
+    GoogleStorageService gcsUploadService;
 
     private static final Logger LOGGER = Logger.getLogger(EmailSenderFunction.class.getName());
 
@@ -49,35 +53,49 @@ public class EmailSenderFunction {
     }
 
     private void sendEmail(EmailData emailData) {
-        Mail mail = new Mail();
-        List<String> recipients = emailData.getDestinations()
-                .stream()
-                .map(String::trim)
-                .filter(email -> !email.isEmpty())
-                .toList();
-        mail.setTo(recipients);
-        mail.setSubject(emailData.getSubject());
-        mail.setText(emailData.getMessage());
+        try {
+            Mail mail = new Mail();
+            List<String> recipients = emailData.getDestinations()
+                    .stream()
+                    .map(String::trim)
+                    .filter(email -> !email.isEmpty())
+                    .toList();
+            mail.setTo(recipients);
+            mail.setSubject(emailData.getSubject());
+            mail.setText(emailData.getMessage());
 
 
-        if (emailData.getAttachment() != null && emailData.getAttachment().getNameFile() != null && !emailData.getAttachment().getNameFile().isEmpty()) {
-            try {
-                Path filePath = Paths.get(emailData.getAttachment().getNameFile());
-                byte[] content = Files.readAllBytes(filePath);
-                String contentType = Files.probeContentType(filePath);
-                if (contentType == null) {
-                    contentType = "application/octet-stream";
+            if (emailData.getAttachment() != null
+                    && emailData.getAttachment().getNameFile() != null
+                    && !emailData.getAttachment().getNameFile().isEmpty()) {
+
+                String bucketName = emailData.getAttachment().getBucket();
+                String objectName = emailData.getAttachment().getNameFile();
+
+                if (bucketName != null && !bucketName.isEmpty()) {
+                    String destPath = System.getProperty("java.io.tmpdir") + File.separator + objectName;
+                    File file = gcsUploadService.downloadFile(bucketName, objectName, destPath);
+
+                    Path filePath = file.toPath();
+                    byte[] content = Files.readAllBytes(filePath);
+                    String contentType = Files.probeContentType(filePath);
+                    if (contentType == null) {
+                        contentType = "application/octet-stream";
+                    }
+                    mail.addAttachment(
+                            filePath.getFileName().toString(),
+                            content,
+                            contentType
+                    );
                 }
-                mail.addAttachment(
-                        filePath.getFileName().toString(),
-                        content,
-                        contentType
-                );
-            } catch (Exception e) {
-                e.printStackTrace();
             }
-        }
 
-        mailer.send(mail);
+            mailer.send(mail);
+            LOGGER.info("Email sent successfully to: " + recipients);
+
+        } catch (Exception e) {
+            LOGGER.severe("Failed to send email: " + e.getMessage());
+            throw new RuntimeException("Error sending email", e);
+        }
     }
 }
