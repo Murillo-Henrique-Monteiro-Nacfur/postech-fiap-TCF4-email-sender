@@ -10,6 +10,8 @@ FROM debian:12-slim
 
 WORKDIR /work/
 
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 COPY --from=build /app/target/*-runner /work/application
 
 RUN chmod +x /work/application

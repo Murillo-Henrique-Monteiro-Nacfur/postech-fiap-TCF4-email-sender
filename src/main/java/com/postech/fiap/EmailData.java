@@ -13,6 +13,7 @@ public class EmailData {
     private Attachment attachment;
 
     @Data
+    @RegisterForReflection
     public static class Attachment {
         private String bucket;
         private String nameFile;
